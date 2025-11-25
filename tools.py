@@ -15,7 +15,6 @@ import subprocess
 from chat import init_restore_chat, init_report_generation_chat, add_response_two_image, add_response_restore
 from api import inference_chat
 import time
-from transformers import CLIPTokenizer, CLIPTextModel
 
 
 import warnings
@@ -49,7 +48,7 @@ class Tools:
         self.part_types = {'Chest X-ray':0, 'Knee X-ray':1,}
         self.disease_classes = {
             'Chest X-ray':{'pneumonia':{0:'no pneumonia', 1:'pneumonia'},
-                           'fivedisease_noME':{0:"Cardiomegaly",1:"Edema",2:"Consolidation",3:"Atelectasis",4:"Pleural Effusion"}},
+                           'mimic':{0:'Atelectasis', 1:'Cardiomegaly', 2:'Consolidation', 3:'Edema', 4:'Enlarged Cardiomediastinum', 5:'Fracture', 6:'Lung Lesion', 7:'Lung Opacity', 8:'No Finding', 9:'Pleural Effusion', 10:'Pleural Other', 11:'Pneumonia', 12:'Pneumothorax', 13:'Support Devices'}},
             'Knee X-ray':{'OAI':{0:'Normal', 1:'Doubtful knee osteoarthritis', 2:'Mild knee osteoarthritis', 3:'Moderate knee osteoarthritis', 4:'Severe knee osteoarthritis'}}
                             }
         
@@ -59,14 +58,17 @@ class Tools:
     def get_monitor_photo(self, output_path, interactive_device):
         if interactive_device is None:
             return 
+        
         save_path = os.path.join(output_path, "screenshot.png")
         if os.path.exists(save_path):
             os.remove(save_path)
+
         for _ in range(8):
             capture = interactive_device.update()
             ret, _ = capture.get_color_image()
             if not ret:
                 continue
+
         while True:
             capture = interactive_device.update()
             ret, color_image = capture.get_color_image()
@@ -200,28 +202,15 @@ class Tools:
             return None, False
         return medical_img, True
     
-    def text2feature(self, text, model, tokenizer):
-        text = tokenizer(text, context_length=256).to(self.device)
-        with torch.no_grad():
-            output = model.encode_text(text)
-        return output
 
-    def restorer(self, rough_image, model, model_cliptextenc, clip_tokenizer):
+
+    def restorer(self, rough_image, model):
         input_img = cv2.resize(rough_image, (512, 512))
-
-        restore_chat = add_response_restore('user', init_restore_chat(), Image.fromarray(rough_image))
-        text = inference_chat(restore_chat,API_URL, API_KEY)
-        #text = ["Modality: X-ray \nRegion: Knee \nView: Frontal \nQuality Issues: \n- Exposure: Overexposure is visible \n- Contrast: Poor contrast between bone and soft tissue \nStructures Affected: Joint space, bone edges \nRequired Improvements: Adjust exposure settings, enhance contrast for better bone and soft tissue distinction"]
-        input_prompts = clip_tokenizer(text, return_tensors="pt", padding="max_length", max_length=clip_tokenizer.model_max_length, truncation=True).to(device)
-        text_input_ids = input_prompts.input_ids
-        with torch.no_grad():
-            text_embeddings = model_cliptextenc(text_input_ids)[0]
-
         # Convert to tensor [H,W,C] -> [1,C, H,W]
         input_img = torch.FloatTensor(cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB)).unsqueeze(0).permute(0,3,1,2) / 255.0
         with torch.no_grad():
             input_img = input_img.to(self.device)
-            output = model(input_img, text_embeddings)
+            output = model(input_img)
 
             output = output[0]
             out_np = output.cpu().numpy()*255
@@ -251,11 +240,10 @@ class Tools:
 
 
 
-    def disease_model_preprocess(self, img, transforms_name, img_cfg):
+    def disease_model_preprocess(self, img, transforms_name):
         '''
         不同模型预处理可能不同
         '''
-
         def general_transform(img, **kwargs):
             img = Resize([224, 224])(img)
             img = Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])(img)
@@ -269,19 +257,22 @@ class Tools:
             img = img.to(self.device)
             return img
 
-        def JFinfer(img, img_cfg,**kwargs):
-            img = mimic_cxr_transform(img, img_cfg)
-            img = torch.tensor(img, dtype=torch.float32).unsqueeze(0)
+        def ark(img, **kwargs):
+            img = np.array(cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)).astype(np.float32) / 255.0
+            img = cv2.resize(img, (768, 768), interpolation=cv2.INTER_LANCZOS4)
+            mean, std = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
+            img = (img - mean) / std
+            img = torch.tensor(img, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0)
             img = img.to(self.device)
             return img
 
         transforms_dict = {
             'general': general_transform,
             'melo': melo,
-            'JFinfer': JFinfer
+            'ark': ark
         }
 
-        return transforms_dict[transforms_name](img, img_cfg=img_cfg) #preprocess_img
+        return transforms_dict[transforms_name](img) #preprocess_img
 
 
     def diagnosis(self, image, models_dict, PartType,):
@@ -295,13 +286,11 @@ class Tools:
         with torch.no_grad():
             idx = 0
             for name, models in models_dict.items():
-                img_cfg = None if len(models) == 1 else models[1]
-                pre_img = self.disease_model_preprocess(image, name, img_cfg)
+                pre_img = self.disease_model_preprocess(image, name)
                 model = models[0].eval()
                 logits = model(pre_img)
 
-                if 'noME' in disease_list[idx]:
-                    # 当疾病分类独立时
+                if 'ark' in disease_list[idx]:
                     prob = list(torch.sigmoid(torch.Tensor(logits)).cpu().numpy())
                     pred = [int(_) for _ in prob]
                 else:
@@ -318,29 +307,28 @@ class Tools:
         classes_result = ''
         for i in range(len(prob)):
             if prob[i] < 0.2:
-                classes_result += f"Hardly {self.disease_classes[PartType][disease_name][i]}. "
+                classes_result += f"Hardly '{self.disease_classes[PartType][disease_name][i]}'.\n"
             elif prob[i]>=0.2 and prob[i] <0.5:
-                classes_result += f"Small possibility of {self.disease_classes[PartType][disease_name][i]}. "
+                classes_result += f"Small possibility of '{self.disease_classes[PartType][disease_name][i]}'.\n"
             elif prob[i]>=0.5 and prob[i] <0.9:
-                classes_result += f"It is likely to have {self.disease_classes[PartType][disease_name][i]}. "
+                classes_result += f"It is likely to have '{self.disease_classes[PartType][disease_name][i]}'.\n"
             else:
-                classes_result += f"Definitely have {self.disease_classes[PartType][disease_name][i]}. "
+                classes_result += f"Definitely have '{self.disease_classes[PartType][disease_name][i]}'.\n"
         classes_result += '\n'
         return classes_result
-    
 
 
     def report_generation(self, medical_image, diagnosis_hint, model="gpt-4o"):
         ref_report = "Patient is status post median sternotomy and CABG. Mild cardiomegaly is similar. The aorta remains tortuous, and the mediastinal and hilar contours are unchanged. Pulmonary vasculature is not engorged. There is minimal atelectasis at the lung bases without focal consolidation. No pleural effusion or pneumothorax is detected. Degenerative changes are seen throughout the thoracic spine."
         ref_medical_img = Image.open(r"D:\Projects\chatcad\ref\02f3df2f-ff2bc640-5f173dca-eaff305d-73b20ae1.jpg").convert('L')
-        ref_prompt = 'The diagnostic report for this medical image is as follows:\n'+ref_report
+        # ref_prompt = 'The diagnostic report for this medical image is as follows:\n'+ref_report
+        ref_prompt = 'The following report is provided for your style reference:\n' + ref_report
 
         report_chat = init_report_generation_chat()
-        prompt = 'Please use a style similar to the above report to diagnose this medical image. (Do not say anything similar: The diagnostic report for this medical image is as follows)'
+        prompt = 'Please refer to the above report style and directly output the report for this medical image.'
         chat_diagnosis = add_response_two_image("user", ref_prompt, prompt, diagnosis_hint, report_chat, ref_medical_img, Image.fromarray(medical_image).convert('L'))
         report = inference_chat(chat_diagnosis, API_URL, API_KEY, model)
         return report
-
 
 
     def multimedia_dispaly(self, report_generation):

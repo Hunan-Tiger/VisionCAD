@@ -658,7 +658,16 @@ class LoRA_ViT_timm_x(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.lora_vit.forward_features(x)
-        x = self.lora_vit.forward_head(x, pre_logits=True)
+        # x = self.lora_vit.forward_head(x, pre_logits=True)
+            # timm 0.5.4 兼容处理
+        # forward_features 已经包含了 norm，但没有 fc_norm
+        # 检查是否需要额外的归一化
+        if hasattr(self.lora_vit, 'fc_norm') and self.lora_vit.fc_norm is not None:
+            x = self.lora_vit.fc_norm(x)
+        elif not hasattr(self.lora_vit, 'forward_head'):
+            # 如果没有 forward_head，确保应用了 norm
+            if hasattr(self.lora_vit, 'norm'):
+                x = self.lora_vit.norm(x)
         
         out_list = []
         for i, idx in enumerate(self.index_list):

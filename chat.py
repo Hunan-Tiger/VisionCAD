@@ -106,12 +106,12 @@ def add_response_two_image(role, ref_prompt, prompt, diagnosis_hint, chat_histor
             "type": "text", 
             "text": ref_prompt
         },
-        {
-            "type": "image_url", 
-            "image_url": {
-                "url": f"data:image/jpeg;base64,{base64_image1}"
-            }
-        },
+        # {
+        #     "type": "image_url", 
+        #     "image_url": {
+        #         "url": f"data:image/jpeg;base64,{base64_image1}"
+        #     }
+        # },
         {
             "type": "text", 
             "text": prompt

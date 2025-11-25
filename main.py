@@ -31,7 +31,7 @@ while True:
     # ==================================================================
 
 
-    tools.get_monitor_photo(screenshot, modules_dict['interactive_device'])
+    # tools.get_monitor_photo(screenshot, modules_dict['interactive_device'])
     time_1 = time.time()
     # ==================================================================
     monitor_photo = tools.localize_monitor(modules_dict['monitor_detect_module'], cv2.imread("screenshot/screenshot.png"), 62) # return ndarray, 62 represents TV index.
@@ -50,6 +50,7 @@ while True:
             print(f"percent: {percent:.2f}%")
             prev_frame = monitor_photo
 
+
     rough_medical_img, flag = tools.localize_image(monitor_photo)
     if not flag:
         print(f"no medical image detected")
@@ -57,14 +58,15 @@ while True:
 
 
     # 修复图像
-    medical_img = tools.restorer(rough_medical_img, modules_dict['image_restoer_module'], modules_dict['clip_module'][0], modules_dict['clip_module'][1])
-
+    medical_img = tools.restorer(rough_medical_img, modules_dict['image_restoer_module'])
     time_2 = time.time()
     print(f'localization and Restore spent time: {int((time_2 - time_1)*1000)} ms')
+
 
     # ==================================================================
     PartType = tools.identification(medical_img, modules_dict['discrimination_module'][0], modules_dict['discrimination_module'][1], modules_dict['discrimination_module'][2])
     modules_dict = diagnosis_module_load(modules_dict, PartType) # 加载对应部位模态图像的诊断模型
+
 
     classifier_results = tools.diagnosis(medical_img, modules_dict['diagnosis_module'][PartType], PartType)
     cv2.imwrite(f'./medical_img/{time.strftime("%Y%m%d%H%M%S")}_{PartType}.png', medical_img)
@@ -73,6 +75,7 @@ while True:
 
     time_3 = time.time()
     print(f'Diagnosis spent time: {int((time_3 - time_2)*1000)} ms')
+
 
     # ==================================================================
     generated_report = tools.report_generation(medical_img, classifier_results)
@@ -85,10 +88,21 @@ while True:
     # ==================================================================
     generated_reports_path = f"generated_reports/{PartType}.json"
     dict_ = {f'{time.strftime("%Y-%m-%d %H:%M:%S")}': generated_report}
-    with open(generated_reports_path, 'a', encoding='utf-8') as f:
-        json.dump(dict_, f, ensure_ascii=False, indent=4)
-        f.write(',')
-        f.write('\n')
+    
+    # 读取现有数据或创建新的列表
+    if os.path.exists(generated_reports_path):
+        with open(generated_reports_path, 'r', encoding='utf-8') as f:
+            try:
+                reports = json.load(f)
+            except json.JSONDecodeError:
+                reports = []
+    else:
+        reports = []
+    # 添加新报告
+    reports.append(dict_)
+    # 写入文件
+    with open(generated_reports_path, 'w', encoding='utf-8') as f:
+        json.dump(reports, f, ensure_ascii=False, indent=4)
 
     # last_screenshot = "./screenshot/last_screenshot.png"
     # if os.path.exists(last_screenshot):

@@ -22,7 +22,10 @@ melo_paths = [
 ]
 
 def model_load(device="cuda"):
-    model = timm.create_model("vit_base_patch16_224", pretrained=True, pretrained_cfg_overlay=dict(file=r"C:\Users\DELL\.cache\huggingface\hub\models--timm--vit_base_patch16_224.augreg2_in21k_ft_in1k\snapshots\063c6c38a5d8510b2e57df480445e94b231dad2c\model.safetensors"))
+    model = timm.create_model(
+        "vit_base_patch16_224", 
+        pretrained=True  
+    )    
     melo = LoRA_ViT_timm_x(model, melo_paths)
     melo = melo.to(device)
     return melo

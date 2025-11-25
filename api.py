@@ -23,7 +23,7 @@ def inference_chat(chat, API_URL, API_KEY, model="gpt-4.1"):
     data = {
         'model': model,
         "messages": messages,
-        "max_tokens": 1024,
+        "max_tokens": 512,
         'temperature': 0.2,
     }
     # data = json.dumps({

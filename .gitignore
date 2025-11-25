@@ -17,4 +17,4 @@ MIMIC-report-gene-byVLM.py
 run_miccai.py
 *.safetensors
 /generated_reports
-
+*.tar
