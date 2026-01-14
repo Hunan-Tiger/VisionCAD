@@ -30,8 +30,8 @@ while True:
     # root.mainloop()
     # ==================================================================
 
+    tools.get_monitor_photo(screenshot, modules_dict['interactive_device']) # kinect
 
-    # tools.get_monitor_photo(screenshot, modules_dict['interactive_device'])
     time_1 = time.time()
     # ==================================================================
     monitor_photo = tools.localize_monitor(modules_dict['monitor_detect_module'], cv2.imread("screenshot/screenshot.png"), 62) # return ndarray, 62 represents TV index.
@@ -46,7 +46,7 @@ while True:
             print(f"percent: {percent:.2f}%")
             continue
         else:
-            print(f"** NOT SMAE **")
+            print(f"** NOT SAME **")
             print(f"percent: {percent:.2f}%")
             prev_frame = monitor_photo
 
@@ -88,7 +88,7 @@ while True:
     # ==================================================================
     generated_reports_path = f"generated_reports/{PartType}.json"
     dict_ = {f'{time.strftime("%Y-%m-%d %H:%M:%S")}': generated_report}
-    
+
     # 读取现有数据或创建新的列表
     if os.path.exists(generated_reports_path):
         with open(generated_reports_path, 'r', encoding='utf-8') as f:

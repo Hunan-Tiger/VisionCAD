@@ -47,8 +47,7 @@ class Tools:
     def __init__(self):
         self.part_types = {'Chest X-ray':0, 'Knee X-ray':1,}
         self.disease_classes = {
-            'Chest X-ray':{'pneumonia':{0:'no pneumonia', 1:'pneumonia'},
-                           'mimic':{0:'Atelectasis', 1:'Cardiomegaly', 2:'Consolidation', 3:'Edema', 4:'Enlarged Cardiomediastinum', 5:'Fracture', 6:'Lung Lesion', 7:'Lung Opacity', 8:'No Finding', 9:'Pleural Effusion', 10:'Pleural Other', 11:'Pneumonia', 12:'Pneumothorax', 13:'Support Devices'}},
+            'Chest X-ray':{'mimic':{0:'Atelectasis', 1:'Cardiomegaly', 2:'Consolidation', 3:'Edema', 4:'Enlarged Cardiomediastinum', 5:'Fracture', 6:'Lung Lesion', 7:'Lung Opacity', 8:'No Finding', 9:'Pleural Effusion', 10:'Pleural Other', 11:'Pneumonia', 12:'Pneumothorax', 13:'Support Devices'}},
             'Knee X-ray':{'OAI':{0:'Normal', 1:'Doubtful knee osteoarthritis', 2:'Mild knee osteoarthritis', 3:'Moderate knee osteoarthritis', 4:'Severe knee osteoarthritis'}}
                             }
         
@@ -56,29 +55,44 @@ class Tools:
 
 
     def get_monitor_photo(self, output_path, interactive_device):
-        if interactive_device is None:
-            return 
-        
-        save_path = os.path.join(output_path, "screenshot.png")
-        if os.path.exists(save_path):
-            os.remove(save_path)
+        if interactive_device[-1] == 'iphone':
+            print("Using iPhone camera for screenshot...")
+            cap = interactive_device[0]
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
-        for _ in range(8):
-            capture = interactive_device.update()
-            ret, _ = capture.get_color_image()
-            if not ret:
-                continue
+            while True:
+                ret, frame = cap.read()
+                if ret:
+                    save_path = os.path.join(output_path, "screenshot.png")
+                    cv2.imwrite(save_path, frame)
+                    break
+            
+        elif interactive_device[-1] == 'kinect':
+            print("Using Kinect device for screenshot...")
+            interactive_device = interactive_device[0]
+            save_path = os.path.join(output_path, "screenshot.png")
+            if os.path.exists(save_path):
+                os.remove(save_path)
 
-        while True:
-            capture = interactive_device.update()
-            ret, color_image = capture.get_color_image()
-            # cv2.imshow('screenshot', color_image)
-            # cv2.waitKey(1)
-            if not ret:
-                continue
-            else:
-                cv2.imwrite(save_path, color_image)
-                break
+            for _ in range(8):
+                capture = interactive_device.update()
+                ret, _ = capture.get_color_image()
+                if not ret:
+                    continue
+
+            while True:
+                capture = interactive_device.update()
+                ret, color_image = capture.get_color_image()
+                # cv2.imshow('screenshot', color_image)
+                # cv2.waitKey(1)
+                if not ret:
+                    continue
+                else:
+                    cv2.imwrite(save_path, color_image)
+                    break
+        else:
+            raise ValueError("No interactive device found for screenshot.")
 
 
 
@@ -331,42 +345,90 @@ class Tools:
         return report
 
 
+# ...existing code...
     def multimedia_dispaly(self, report_generation):
         stop_event = threading.Event()
         speecher_thread = threading.Thread(target=self.multimedia_speaker, args=(report_generation, stop_event))
         speecher_thread.start()
-        msg_box = tk.Tk()
-        msg_box.withdraw()
-        msg_box.attributes('-topmost', True)
-        messagebox.showinfo("Report", report_generation)
-        msg_box.destroy()
+        # 创建主窗口并隐藏
+        root = tk.Tk()
+        root.withdraw()
+        # 创建自定义弹窗
+        top = tk.Toplevel(root)
+        top.title("Clinical Report")
+        top.attributes('-topmost', True)
+        # 设置窗口内容
+        lbl = tk.Label(top, text=report_generation, justify=tk.LEFT, padx=20, pady=20, wraplength=400)
+        lbl.pack()
+        btn = tk.Button(top, text="OK", command=lambda: [top.destroy(), root.destroy()], width=10)
+        btn.pack(pady=10)
+        # 更新窗口以获取准确尺寸
+        top.update_idletasks()
+        # 获取屏幕尺寸
+        screen_width = top.winfo_screenwidth()
+        screen_height = top.winfo_screenheight()
+        # 获取窗口尺寸
+        window_width = top.winfo_width()
+        window_height = top.winfo_height()
+        # 计算右下角位置 (留出一点边距，例如 50px)
+        x_pos = screen_width - window_width - 50
+        y_pos = screen_height - window_height - 80
+        # 设置位置
+        top.geometry(f'+{x_pos}+{y_pos}')
+        # 阻塞直到窗口关闭
+        root.wait_window(top)
         stop_event.set()
         speecher_thread.join()
 
 
     def multimedia_speaker(self, TEXT, stop_event):
-        cmd = f'edge-tts --text \"{TEXT}\" --write-media result.wav'
+        output_file = "result.wav"
+        # 使用列表传参，更安全且无需 shell=True
+        gen_cmd = ["edge-tts", "--text", TEXT, "--write-media", output_file]
         try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, timeout=60)
-            if result.returncode == 0:
-                play_cmd = 'start /min mpv.exe result.wav'
-                play_process = subprocess.Popen(play_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-                while not stop_event.is_set():
-                    continue
-                try:
-                    subprocess.run('taskkill /f /im mpv.exe', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, timeout=10)
-                except subprocess.TimeoutExpired:
-                    print("Taskkill command timed out")
-                except Exception as e:
-                    print(f"An error occurred while killing mpv.exe: {e}")
-            else:
-                print(f"Error executing command: {result.stderr.decode()}")
-        except subprocess.TimeoutExpired:
-            print("Command timed out")
+            # 1. 生成音频
+            # check=True 会在命令失败时自动抛出异常
+            subprocess.run(gen_cmd, check=True, timeout=60, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+            if os.path.exists(output_file):
+                # 2. 播放音频
+                # 直接调用 mpv，添加参数使其静默运行
+                # --no-terminal: 不显示控制台输出
+                # --force-window=no: 纯音频模式不显示窗口
+                play_cmd = ["mpv", "--no-terminal", "--force-window=no", output_file]
+                # 配置 startupinfo 以在 Windows 上隐藏控制台窗口
+                startupinfo = None
+                if os.name == 'nt':
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                # 启动播放进程
+                player = subprocess.Popen(
+                    play_cmd, 
+                    stdout=subprocess.DEVNULL, 
+                    stderr=subprocess.DEVNULL,
+                    startupinfo=startupinfo
+                )
+                # 3. 智能等待
+                # 循环检查：只要播放没结束(poll为None)且没有收到停止信号
+                while player.poll() is None:
+                    # wait(0.1) 会阻塞线程最多0.1秒，或者直到收到信号
+                    # 这比 continue 循环极其节省 CPU
+                    if stop_event.wait(0.1):
+                        # 收到停止信号，优雅地终止特定进程
+                        player.terminate()
+                        break
+                        
+        except subprocess.CalledProcessError as e:
+            print(f"TTS Generation failed: {e.stderr.decode() if e.stderr else 'Unknown error'}")
         except Exception as e:
-            print(f"An error occurred: {e}")
-        if os.path.exists("result.wav"):
-            os.remove("result.wav")
+            print(f"Speaker error: {e}")
+        finally:
+            # 4. 确保清理临时文件
+            if os.path.exists(output_file):
+                try:
+                    os.remove(output_file)
+                except Exception:
+                    pass
     
 
     def diff_two_frames(self, frame1, frame2):
